@@ -35,6 +35,10 @@
   (let [program (.createProgram gl)]
     (.attachShader gl program vert-shader)
     (.attachShader gl program frag-shader)
+    (when-let [feedback-outputs (:transform-feedback-outputs vert-shader)]
+      (.transformFeedbackVaryings program
+                                  (clj->js feedback-outputs
+                                           gl.SEPARATE_ATTRIBS)))
     (.linkProgram gl program)
     (if (.getProgramParameter gl program gl.LINK_STATUS)
       program
@@ -68,8 +72,10 @@
   (set-sprog-uniforms! gl sprog uniform-map)
   (set-sprog-attributes! gl sprog attribute-map))
 
+(def transform-feedback-outputs (memoize (comp sort keys)))
+
 (defn run-sprog! [gl sprog size uniform-map attribute-map start length
-                  & [{:keys [target]}]]
+                  & [{:keys [target transform-feedback]}]]
   (if target
     (if (coll? target)
       (apply (partial target-textures! gl) target)
@@ -81,6 +87,8 @@
               (= (count size) 4) (vec size))]
     (.viewport gl offset-x offset-y width height)
     (use-sprog! gl sprog uniform-map attribute-map)
+    (when transform-feedback
+      (.))
     (.drawArrays gl gl.TRIANGLES start length)))
 
 (defn run-purefrag-sprog! [gl sprog size uniform-map & [options]]
@@ -103,10 +111,22 @@
         (swap! autosprog-cache-atom assoc autosprog-key autosprog)
         autosprog))))
 
-(defn run-shaders! [gl sources size uniform-map attribute-map start length
-                      & [options]]
+(defn run-shaders! [gl 
+                    [frag-source vert-source]
+                    size
+                    uniform-map
+                    attribute-map
+                    start
+                    length
+                      & [{:keys [transform-feedback] :as options}]]
   (run-sprog! gl
-              (get-autosprog gl sources)
+              (get-autosprog gl 
+                             [frag-source
+                              (cond-> vert-source
+                                transform-feedback 
+                                (assoc :transform-feedback-outputs
+                                       (transform-feedback-outputs
+                                        transform-feedback)))])
               size
               uniform-map
               attribute-map
